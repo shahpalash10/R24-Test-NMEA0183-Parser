@@ -18,8 +18,8 @@ const char* sentence_prefix[] = { "GGA", "GLL", "GSA", "GSV",
                                     "MSS", "RMC", "VTG" };
 gps_error_code_t parse_gga(gps_t gps_instance, const char* sentence, int len);
 gps_error_code_t parse_gll(gps_t gps_instance, const char* sentence, int len);
-gps_error_code_t gga_get_lat_lon(int* degmin, int* minfrac);
-gps_error_code_t gll_get_lat_lon(int* degmin, int* minfrac);
+gps_error_code_t gga_get_lat_lon(int* degmin, int* minfrac, char* lat_hemi, char* lon_hemi);
+gps_error_code_t gll_get_lat_lon(int* degmin, int* minfrac, char* lat_hemi, char* lon_hemi);
 gps_error_code_t (* const sentence_parsers[])(gps_t, const char*, int) = {
   parse_gga,
   parse_gll,
@@ -32,6 +32,8 @@ struct gps_gga_t {
   float hdop;
   float altitude;
   float geoid_sep_metres;
+  char lat_hemi;
+  char lon_hemi;
 } gga;
 struct gps_gll_t {
   float lat;
@@ -77,9 +79,11 @@ gps_error_code_t gps_update(gps_t gps_instance, const char* sentence, int len) {
   else
     return GPS_UNIMPLEMENTED;
 }
-gps_error_code_t gps_get_lat_lon(gps_t gps_instance, int* degmin, int* minfrac) {
-  if (gps_instance->last_msg_type == SENTENCE_GGA) return gga_get_lat_lon(degmin, minfrac);
-  if (gps_instance->last_msg_type == SENTENCE_GLL) return gll_get_lat_lon(degmin, minfrac);
+gps_error_code_t gps_get_lat_lon(gps_t gps_instance, int* degmin, int* minfrac, char* lat_hemi, char* lon_hemi) {
+  if (gps_instance->last_msg_type == SENTENCE_GGA)
+    return gga_get_lat_lon(degmin, minfrac, lat_hemi, lon_hemi);
+  if (gps_instance->last_msg_type == SENTENCE_GLL)
+    return gll_get_lat_lon(degmin, minfrac, lat_hemi, lon_hemi);
   return GPS_UNIMPLEMENTED;
 }
 gps_error_code_t gps_get_time(gps_t gps_instance, struct tm* time) {
@@ -88,12 +92,15 @@ gps_error_code_t gps_get_time(gps_t gps_instance, struct tm* time) {
 gps_error_code_t gps_get_altitude(gps_t gps_instance, float* msl_metres) {
   return GPS_UNIMPLEMENTED;
 }
-gps_error_code_t gga_get_lat_lon(int* degmin, int* minfrac) {
+gps_error_code_t gga_get_lat_lon(int* degmin, int* minfrac, char* lat_hemi, char* lon_hemi) {
   degmin[0] = (int) gga.lat;
   minfrac[0] = (int) ((gga.lat - degmin[0])*10000);
+  *lat_hemi = gga.lat_hemi;
   
   degmin[1] = (int) gga.lon;
   minfrac[1] = (int) ((gga.lon - degmin[1])*10000);
+  *lon_hemi = gga.lon_hemi;
+  
   return GPS_NO_ERROR;
 }
 gps_error_code_t gps_get_geoid_sep(gps_t gps_instance, float* geoid_sep_metres) {
@@ -112,32 +119,36 @@ gps_error_code_t parse_gga(gps_t gps_instance, const char* sentence, int len) {
     int empty_field = i == j;
 
     if (fieldc == 1) {
-      // Time
+    
       if (empty_field) return GPS_NO_TIME;
       strncpy(gga.time, sentence, 6);
     }
     else if (fieldc == 2) {
-      // Latitude
+    
       if (!empty_field)
         gga.lat = strtod(sentence+i, NULL);
     }
     else if (fieldc == 3) {
-      // Latitude direction
+   
       if (!empty_field && sentence[i] == 'S')
-        gga.time[7] &= 0b10;
+        gga.lat_hemi = 'S';
+      else
+        gga.lat_hemi = 'N';
     }
     else if (fieldc == 4) {
-      // Longitude
+  
       if (!empty_field)
         gga.lon = strtod(sentence+i, NULL);
     }
     else if (fieldc == 5) {
-      // Longitude direction
+   
       if (!empty_field && sentence[i] == 'W')
-        gga.time[7] |= 0b01;
+        gga.lon_hemi = 'W';
+      else
+        gga.lon_hemi = 'E';
     }
     else if (fieldc == 6) {
-      // Type of fix
+      
       if (empty_field) return GPS_NO_FIX_TYPE;
       gga.time[7] |= (sentence[i] != '0') << 3;
     }
@@ -161,7 +172,7 @@ gps_error_code_t parse_gga(gps_t gps_instance, const char* sentence, int len) {
   }
   return GPS_NO_ERROR;
 }
-gps_error_code_t gll_get_lat_lon(int* degmin, int* minfrac) {
+gps_error_code_t gll_get_lat_lon(int* degmin, int* minfrac, char* lat_hemi, char* lon_hemi) {
   return GPS_UNIMPLEMENTED;
 }
 gps_error_code_t parse_gll(gps_t gps_instance, const char* sentence, int len) {
@@ -173,27 +184,27 @@ gps_error_code_t parse_gll(gps_t gps_instance, const char* sentence, int len) {
     int empty_field = i == j;
 
     if (fieldc == 1) {
-      // Latitude
+      
       if (!empty_field)
         gll.lat = strtod(sentence+i, NULL);
     }
     else if (fieldc == 2) {
-      // Latitude direction
+    
       if (!empty_field && sentence[i] == 'S')
         gll.flags &= 0b10;
     }
     else if (fieldc == 3) {
-      // Longitude
+
       if (!empty_field)
         gll.lon = strtod(sentence+i, NULL);
     }
     else if (fieldc == 4) {
-      // Longitude direction
+
       if (!empty_field && sentence[i] == 'W')
         gll.flags |= 0b01;
     }
     else if (fieldc == 5) {
-      // Time
+
       if (empty_field) return GPS_NO_TIME;
       gll.time = strtod(sentence+i, NULL);
     }
